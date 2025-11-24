@@ -18,14 +18,13 @@ session = requests.Session()
 session.trust_env = False
 session.proxies = {}
 
-def download_ieee_paper(doi: str, page_url: str, output_dir: str, custom_filename: str | None = None) -> str:
+def download_ieee_paper(doi: str, page_url: str, output_dir: str) -> str:
     """Download IEEE paper using their PDF API
 
     Args:
         doi: Paper DOI
         page_url: IEEE paper page URL
         output_dir: Directory to save the PDF
-        custom_filename: Custom filename (without .pdf extension). If None, uses DOI as filename
     """
     try:
         doc_id = re.search(r'document/(\d+)', page_url)
@@ -39,14 +38,8 @@ def download_ieee_paper(doi: str, page_url: str, output_dir: str, custom_filenam
 
         if 'pdf' in response.headers.get('content-type', '').lower():
             Path(output_dir).mkdir(exist_ok=True)
-
-            # Use custom filename or DOI as filename
-            if custom_filename:
-                filename = f"{output_dir}/{custom_filename}.pdf"
-            else:
-                safe_doi = re.sub(r'[^\w\-_.]', '_', doi)
-                filename = f"{output_dir}/{safe_doi}.pdf"
-
+            safe_doi = re.sub(r'[^\w\-_.]', '_', doi)
+            filename = f"{output_dir}/{safe_doi}.pdf"
             Path(filename).write_bytes(response.content)
             return f"Downloaded to {filename}"
         else:
@@ -55,15 +48,10 @@ def download_ieee_paper(doi: str, page_url: str, output_dir: str, custom_filenam
     except Exception as e:
         return f"IEEE download failed: {e}\nTry manually: {page_url}"
 
-async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custom_filename: str | None = None) -> str:
+async def download_acm_paper_with_browser_async(doi: str, output_dir: str) -> str:
     """Download ACM paper using browser's built-in PDF download functionality
 
-    Opens the PDF URL and uses JavaScript to trigger download.
-
-    Args:
-        doi: Paper DOI
-        output_dir: Directory to save the PDF
-        custom_filename: Custom filename (without .pdf extension). If None, uses DOI as filename
+    Opens the PDF URL and uses Chromium's built-in PDF viewer download button.
     """
     try:
         async with async_playwright() as p:
@@ -144,12 +132,8 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
                 if download_promise:
                     print('Download detected, saving file...')
 
-                    # Use custom filename or DOI as filename
-                    if custom_filename:
-                        filename = f"{custom_filename}.pdf"
-                    else:
-                        safe_doi = re.sub(r"[^\w\-_.]", "_", doi)
-                        filename = f"{safe_doi}.pdf"
+                    safe_doi = re.sub(r"[^\w\-_.]", "_", doi)
+                    filename = f"{safe_doi}.pdf"
 
                     Path(output_dir).mkdir(exist_ok=True)
                     save_path = str(Path(output_dir) / filename)
@@ -171,85 +155,41 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
     except Exception as e:
         return f"Browser download failed: {e}\nTry manually: https://dl.acm.org/doi/pdf/{doi}"
 
-def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: str | None = None) -> str:
+def download_acm_paper_with_browser(doi: str, output_dir: str) -> str:
     """Wrapper to run async download in sync context"""
-    return asyncio.run(download_acm_paper_with_browser_async(doi, output_dir, custom_filename))
+    return asyncio.run(download_acm_paper_with_browser_async(doi, output_dir))
 
-@mcp.tool()
-def scrape_dblp_conference(url: str, output_file: str = "papers.md", include_authors: bool = False) -> str:
-    """Scrape papers from a DBLP conference page and save to markdown file
 
-    Args:
-        url: DBLP conference page URL
-        output_file: Output markdown file path
-        include_authors: Whether to include author information (default: False)
-    """
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        return f"Error fetching URL: {e}"
-
-    tree = HTMLParser(response.text)
-    papers = []
-
-    for item in tree.css("li.entry.inproceedings"):
-        title_node = item.css_first("span.title")
-        title = title_node.text(strip=True) if title_node else "N/A"
-
-        authors = [author.text(strip=True) for author in item.css("span[itemprop='author'] span[itemprop='name']")]
-
-        doi_node = item.css_first("a[itemprop='url']")
-        doi_url = doi_node.attributes.get('href', 'N/A') if doi_node else 'N/A'
-
-        papers.append({"title": title, "authors": authors, "doi_url": doi_url})
-
-    # Write to markdown
-    md_content = f"# Conference Papers\n\nSource: {url}\n\n"
-    for i, paper in enumerate(papers, 1):
-        md_content += f"## {i}. {paper['title']}\n\n"
-        if include_authors:
-            md_content += f"**Authors:** {', '.join(paper['authors'])}\n\n"
-        md_content += f"**DOI:** {paper['doi_url']}\n\n"
-        md_content += "---\n\n"
-
-    Path(output_file).write_text(md_content, encoding='utf-8')
-    return f"Scraped {len(papers)} papers to {output_file}"
-
-@mcp.tool()
-def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str | None = None) -> str:
+def download_paper(doi: str, output_dir: str = "downloads") -> str:
     """Download a paper PDF from its DOI
 
     Supports IEEE and ACM papers with specialized download methods.
-    ACM papers use browser to bypass Cloudflare protection.
-
-    Args:
-        doi: Paper DOI (e.g., "10.1145/3695053.3731073" or full URL)
-        output_dir: Directory to save the PDF (default: "downloads")
-        custom_filename: Custom filename without .pdf extension. If None, uses DOI as filename
+    ACM papers use headless browser to bypass Cloudflare protection.
     """
     doi = doi.replace('https://doi.org/', '')
 
     # Check if it's an ACM DOI pattern (10.1145/...)
     if doi.startswith('10.1145/'):
-        return download_acm_paper_with_browser(doi, output_dir, custom_filename)
+        return download_acm_paper_with_browser(doi, output_dir)
 
     # Resolve DOI to get the publisher's URL
     page_url = None
+    print('here')
     try:
         response = session.head(f"https://doi.org/{doi}", allow_redirects=True, timeout=5)
         page_url = response.url
+        print(response)
     except Exception as e:
         # If DOI resolution fails, try to infer from DOI pattern
         if doi.startswith('10.1145/'):
-            return download_acm_paper_with_browser(doi, output_dir, custom_filename)
+            return download_acm_paper_with_browser(doi, output_dir)
         return f"DOI resolution failed: {e}"
+    print(f'page_url,f{page_url}')
     # Check publisher and use specialized download methods
     if 'dl.acm.org' in page_url:
-        return download_acm_paper_with_browser(doi, output_dir, custom_filename)
+        return download_acm_paper_with_browser(doi, output_dir)
     elif 'ieeexplore.ieee.org' in page_url:
-        return download_ieee_paper(doi, page_url, output_dir, custom_filename)
+        return download_ieee_paper(doi, page_url, output_dir)
 
     # Generic download for other publishers
     try:
@@ -258,7 +198,7 @@ def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str
 
         # Handle Cloudflare or other blocks - check if it might be ACM
         if response.status_code == 403 and 'acm.org' in page_url:
-            return download_acm_paper_with_browser(doi, output_dir, custom_filename)
+            return download_acm_paper_with_browser(doi, output_dir)
 
         tree = HTMLParser(response.text)
         pdf_urls = []
@@ -274,13 +214,8 @@ def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str
 
         # Try to download from found PDF URLs
         Path(output_dir).mkdir(exist_ok=True)
-
-        # Use custom filename or DOI as filename
-        if custom_filename:
-            filename = f"{output_dir}/{custom_filename}.pdf"
-        else:
-            safe_doi = re.sub(r'[^\w\-_.]', '_', doi)
-            filename = f"{output_dir}/{safe_doi}.pdf"
+        safe_doi = re.sub(r'[^\w\-_.]', '_', doi)
+        filename = f"{output_dir}/{safe_doi}.pdf"
 
         for url in pdf_urls:
             try:
@@ -300,4 +235,8 @@ def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str
         return f"Error finding PDF: {e}"
 
 if __name__ == "__main__":
-    mcp.run()
+
+    print('start')
+    s = download_paper('https://doi.org/10.1145/3695053.3731073','./')
+    print(s)
+    print('end')
