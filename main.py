@@ -17,6 +17,36 @@ session = requests.Session()
 session.trust_env = False
 session.proxies = {}
 
+def download_ieee_paper(doi: str, page_url: str, output_dir: str) -> str:
+    """Download IEEE paper using their PDF API
+
+    Args:
+        doi: Paper DOI
+        page_url: IEEE paper page URL
+        output_dir: Directory to save the PDF
+    """
+    try:
+        doc_id = re.search(r'document/(\d+)', page_url)
+        if not doc_id:
+            return f"Could not extract IEEE document ID from {page_url}"
+
+        pdf_url = f"https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber={doc_id.group(1)}"
+
+        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+        response = session.get(pdf_url, headers=headers, timeout=15)
+
+        if 'pdf' in response.headers.get('content-type', '').lower():
+            Path(output_dir).mkdir(exist_ok=True)
+            safe_doi = re.sub(r'[^\w\-_.]', '_', doi)
+            filename = f"{output_dir}/{safe_doi}.pdf"
+            Path(filename).write_bytes(response.content)
+            return f"Downloaded to {filename}"
+        else:
+            return f"Download failed. Try manually: {page_url}"
+
+    except Exception as e:
+        return f"IEEE download failed: {e}\nTry manually: {page_url}"
+
 def download_acm_paper_with_browser(doi: str, output_dir: str) -> str:
     """Download ACM paper using headless browser to bypass Cloudflare protection
 
@@ -119,35 +149,47 @@ def scrape_dblp_conference(url: str, output_file: str = "papers.md", include_aut
 
 @mcp.tool()
 def download_paper(doi: str, output_dir: str = "downloads") -> str:
-    """Download a paper PDF from its DOI"""
+    """Download a paper PDF from its DOI
+
+    Supports IEEE and ACM papers with specialized download methods.
+    ACM papers use headless browser to bypass Cloudflare protection.
+    """
     doi = doi.replace('https://doi.org/', '')
 
-    # Resolve DOI
+    # Check if it's an ACM DOI pattern (10.1145/...)
+    if doi.startswith('10.1145/'):
+        return download_acm_paper_with_browser(doi, output_dir)
+
+    # Resolve DOI to get the publisher's URL
+    page_url = None
     try:
         response = session.head(f"https://doi.org/{doi}", allow_redirects=True, timeout=5)
         page_url = response.url
     except Exception as e:
+        # If DOI resolution fails, try to infer from DOI pattern
+        if doi.startswith('10.1145/'):
+            return download_acm_paper_with_browser(doi, output_dir)
         return f"DOI resolution failed: {e}"
 
-    # Find PDF URLs
+    # Check publisher and use specialized download methods
+    if 'dl.acm.org' in page_url:
+        return download_acm_paper_with_browser(doi, output_dir)
+    elif 'ieeexplore.ieee.org' in page_url:
+        return download_ieee_paper(doi, page_url, output_dir)
+
+    # Generic download for other publishers
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
         response = session.get(page_url, headers=headers, timeout=10)
-        tree = HTMLParser(response.text)
 
-        pdf_urls = []
-
-        # IEEE specific
-        if 'ieeexplore.ieee.org' in page_url:
-            doc_id = re.search(r'document/(\d+)', page_url)
-            if doc_id:
-                pdf_urls.append(f"https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber={doc_id.group(1)}")
-
-        # ACM specific - use headless browser to bypass Cloudflare
-        elif 'dl.acm.org' in page_url:
+        # Handle Cloudflare or other blocks - check if it might be ACM
+        if response.status_code == 403 and 'acm.org' in page_url:
             return download_acm_paper_with_browser(doi, output_dir)
 
-        # Generic PDF links
+        tree = HTMLParser(response.text)
+        pdf_urls = []
+
+        # Find generic PDF links
         for link in tree.css('a[href*=".pdf"]'):
             href = link.attributes.get('href', '')
             if href:
@@ -156,24 +198,27 @@ def download_paper(doi: str, output_dir: str = "downloads") -> str:
         if not pdf_urls:
             return f"No PDF found for {page_url}"
 
+        # Try to download from found PDF URLs
+        Path(output_dir).mkdir(exist_ok=True)
+        safe_doi = re.sub(r'[^\w\-_.]', '_', doi)
+        filename = f"{output_dir}/{safe_doi}.pdf"
+
+        for url in pdf_urls:
+            try:
+                response = session.get(url, headers=headers, timeout=15)
+                if 'pdf' in response.headers.get('content-type', '').lower():
+                    Path(filename).write_bytes(response.content)
+                    return f"Downloaded to {filename}"
+            except Exception:
+                continue
+
+        return f"Download failed. Try manually: {page_url}"
+
     except Exception as e:
+        # If we get an error and suspect it's ACM, try browser method
+        if page_url and 'acm.org' in page_url:
+            return download_acm_paper_with_browser(doi, output_dir)
         return f"Error finding PDF: {e}"
-
-    # Download PDF
-    Path(output_dir).mkdir(exist_ok=True)
-    safe_doi = re.sub(r'[^\w\-_.]', '_', doi)
-    filename = f"{output_dir}/{safe_doi}.pdf"
-
-    for url in pdf_urls:
-        try:
-            response = session.get(url, headers=headers, timeout=15)
-            if 'pdf' in response.headers.get('content-type', '').lower():
-                Path(filename).write_bytes(response.content)
-                return f"Downloaded to {filename}"
-        except Exception:
-            continue
-
-    return f"Download failed. Try manually: {page_url}"
 
 if __name__ == "__main__":
     mcp.run()
