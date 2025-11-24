@@ -5,7 +5,7 @@ import re
 import time
 import os
 from fastmcp import FastMCP
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 mcp = FastMCP("PaperSearcher")
 
@@ -54,7 +54,7 @@ def download_ieee_paper(doi: str, page_url: str, output_dir: str, custom_filenam
     except Exception as e:
         return f"IEEE download failed: {e}\nTry manually: {page_url}"
 
-def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: str | None = None) -> str:
+async def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: str | None = None) -> str:
     """Download ACM paper using browser's built-in PDF download functionality
 
     Opens the PDF URL and uses JavaScript to trigger download.
@@ -65,17 +65,17 @@ def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: 
         custom_filename: Custom filename (without .pdf extension). If None, uses DOI as filename
     """
     try:
-        with sync_playwright() as p:
+        async with async_playwright() as p:
             print('Launching browser to download ACM paper...')
 
             # Launch browser in headed mode
-            browser = p.chromium.launch(
+            browser = await p.chromium.launch(
                 headless=False,
                 proxy=None
             )
 
             # Create context with realistic browser settings and download handling
-            context = browser.new_context(
+            context = await browser.new_context(
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 viewport={'width': 1920, 'height': 1080},
                 accept_downloads=True,
@@ -83,7 +83,7 @@ def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: 
                 timezone_id='America/New_York',
             )
 
-            page = context.new_page()
+            page = await context.new_page()
 
             # Directly navigate to PDF URL
             pdf_url = f"https://dl.acm.org/doi/pdf/{doi}"
@@ -102,10 +102,10 @@ def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: 
             # Navigate to PDF URL
             try:
                 print('Navigating to PDF URL...')
-                page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
+                await page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
 
                 # Check page title for Cloudflare challenge
-                title = page.title()
+                title = await page.title()
                 print(f'Page title: {title}')
 
                 # Check if we hit Cloudflare
@@ -115,7 +115,7 @@ def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: 
 
                     # Wait for title to change
                     try:
-                        page.wait_for_function(
+                        await page.wait_for_function(
                             "document.title !== '请稍候…' && document.title !== 'Just a moment...'",
                             timeout=60000
                         )
@@ -125,11 +125,11 @@ def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: 
 
                 # Wait for PDF to fully load
                 print('Waiting for PDF to fully load (10 seconds)...')
-                page.wait_for_timeout(10000)
+                await page.wait_for_timeout(10000)
 
                 # Trigger download using JavaScript
                 print('Triggering download via JavaScript...')
-                page.evaluate('''
+                await page.evaluate('''
                     () => {
                         const link = document.createElement('a');
                         link.href = window.location.href;
@@ -137,7 +137,7 @@ def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: 
                         link.click();
                     }
                 ''')
-                page.wait_for_timeout(3000)
+                await page.wait_for_timeout(3000)
 
                 # Wait for download to complete
                 if download_promise:
@@ -153,18 +153,18 @@ def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: 
                     Path(output_dir).mkdir(exist_ok=True)
                     save_path = str(Path(output_dir) / filename)
 
-                    download_promise.save_as(save_path)
+                    await download_promise.save_as(save_path)
                     print(f"Successfully saved to: {save_path}")
 
-                    browser.close()
+                    await browser.close()
                     return f"Downloaded to {save_path}"
                 else:
-                    browser.close()
+                    await browser.close()
                     return f"Could not trigger download. Please try manually: {pdf_url}"
 
             except Exception as nav_error:
                 print(f'Navigation error: {nav_error}')
-                browser.close()
+                await browser.close()
                 return f"Navigation failed: {nav_error}\nTry manually: {pdf_url}"
 
     except Exception as e:
@@ -213,7 +213,7 @@ def scrape_dblp_conference(url: str, output_file: str = "papers.md", include_aut
     return f"Scraped {len(papers)} papers to {output_file}"
 
 @mcp.tool()
-def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str | None = None) -> str:
+async def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str | None = None) -> str:
     """Download a paper PDF from its DOI
 
     Supports IEEE and ACM papers with specialized download methods.
@@ -228,7 +228,7 @@ def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str
 
     # Check if it's an ACM DOI pattern (10.1145/...)
     if doi.startswith('10.1145/'):
-        return download_acm_paper_with_browser(doi, output_dir, custom_filename)
+        return await download_acm_paper_with_browser(doi, output_dir, custom_filename)
 
     # Resolve DOI to get the publisher's URL
     page_url = None
@@ -238,11 +238,11 @@ def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str
     except Exception as e:
         # If DOI resolution fails, try to infer from DOI pattern
         if doi.startswith('10.1145/'):
-            return download_acm_paper_with_browser(doi, output_dir, custom_filename)
+            return await download_acm_paper_with_browser(doi, output_dir, custom_filename)
         return f"DOI resolution failed: {e}"
     # Check publisher and use specialized download methods
     if 'dl.acm.org' in page_url:
-        return download_acm_paper_with_browser(doi, output_dir, custom_filename)
+        return await download_acm_paper_with_browser(doi, output_dir, custom_filename)
     elif 'ieeexplore.ieee.org' in page_url:
         return download_ieee_paper(doi, page_url, output_dir, custom_filename)
 
@@ -253,7 +253,7 @@ def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str
 
         # Handle Cloudflare or other blocks - check if it might be ACM
         if response.status_code == 403 and 'acm.org' in page_url:
-            return download_acm_paper_with_browser(doi, output_dir, custom_filename)
+            return await download_acm_paper_with_browser(doi, output_dir, custom_filename)
 
         tree = HTMLParser(response.text)
         pdf_urls = []
@@ -291,7 +291,7 @@ def download_paper(doi: str, output_dir: str = "downloads", custom_filename: str
     except Exception as e:
         # If we get an error and suspect it's ACM, try browser method
         if page_url and 'acm.org' in page_url:
-            return download_acm_paper_with_browser(doi, output_dir)
+            return await download_acm_paper_with_browser(doi, output_dir)
         return f"Error finding PDF: {e}"
 
 if __name__ == "__main__":
