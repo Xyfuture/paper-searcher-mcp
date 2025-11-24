@@ -9,9 +9,33 @@ A Model Context Protocol (MCP) server for searching and downloading academic pap
 
 ## Installation
 
+### Quick Install (Recommended)
+
+Install directly from GitHub using uvx:
+
 ```bash
+uvx --from git+https://github.com/Xyfuture/paper-searcher-mcp paper-searcher-mcp
+```
+
+### Development Install
+
+Clone and install locally:
+
+```bash
+git clone https://github.com/Xyfuture/paper-searcher-mcp.git
+cd paper-searcher-mcp
 uv sync
 ```
+
+### Updating
+
+To update to the latest version, simply reinstall using uvx:
+
+```bash
+uvx --from git+https://github.com/Xyfuture/paper-searcher-mcp paper-searcher-mcp
+```
+
+uvx will automatically fetch and use the latest version from GitHub.
 
 ## Usage
 
@@ -23,6 +47,19 @@ This MCP server can be integrated with any LLM client that supports the Model Co
 
 Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
+**Option 1: Using uvx (Recommended - Auto-updates)**
+```json
+{
+  "mcpServers": {
+    "paper-searcher": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/Xyfuture/paper-searcher-mcp", "paper-searcher-mcp"]
+    }
+  }
+}
+```
+
+**Option 2: Using local installation**
 ```json
 {
   "mcpServers": {
@@ -37,7 +74,12 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 #### For Other MCP Clients
 
-Configure your MCP client to connect to this server using the command:
+**Using uvx:**
+```bash
+uvx --from git+https://github.com/Xyfuture/paper-searcher-mcp paper-searcher-mcp
+```
+
+**Using local installation:**
 ```bash
 uv run fastmcp run main.py
 ```
@@ -100,3 +142,28 @@ download_paper("10.1145/3489517.3530525", "downloads")
 - All downloads are performed without proxy to ensure compatibility with academic publisher websites
 - The server automatically handles different publisher-specific download methods
 - Author information is optional in conference scraping to reduce output size when not needed
+
+## How Updates Work
+
+### For uvx Users (Recommended)
+
+When using uvx with the GitHub URL, updates are handled automatically:
+
+- **First run**: uvx downloads and caches the latest version from GitHub
+- **Subsequent runs**: uvx checks for updates and uses the cached version if current
+- **Manual update**: Simply restart your MCP client (e.g., Claude Desktop) - uvx will fetch the latest version on next launch
+- **Force update**: Run the uvx command again manually to force a fresh download
+
+**No manual update steps needed!** Just restart your LLM client to get the latest features.
+
+### For Local Installation Users
+
+If you cloned the repository locally, update with:
+
+```bash
+cd /path/to/paper-searcher-mcp
+git pull
+uv sync
+```
+
+Then restart your MCP client to use the updated version.
