@@ -5,8 +5,7 @@ import re
 import time
 import os
 from fastmcp import FastMCP
-from playwright.async_api import async_playwright
-import asyncio
+from playwright.sync_api import sync_playwright
 
 mcp = FastMCP("PaperSearcher")
 
@@ -55,7 +54,7 @@ def download_ieee_paper(doi: str, page_url: str, output_dir: str, custom_filenam
     except Exception as e:
         return f"IEEE download failed: {e}\nTry manually: {page_url}"
 
-async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custom_filename: str | None = None) -> str:
+def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: str | None = None) -> str:
     """Download ACM paper using browser's built-in PDF download functionality
 
     Opens the PDF URL and uses JavaScript to trigger download.
@@ -66,17 +65,17 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
         custom_filename: Custom filename (without .pdf extension). If None, uses DOI as filename
     """
     try:
-        async with async_playwright() as p:
+        with sync_playwright() as p:
             print('Launching browser to download ACM paper...')
 
             # Launch browser in headed mode
-            browser = await p.chromium.launch(
+            browser = p.chromium.launch(
                 headless=False,
                 proxy=None
             )
 
             # Create context with realistic browser settings and download handling
-            context = await browser.new_context(
+            context = browser.new_context(
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 viewport={'width': 1920, 'height': 1080},
                 accept_downloads=True,
@@ -84,7 +83,7 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
                 timezone_id='America/New_York',
             )
 
-            page = await context.new_page()
+            page = context.new_page()
 
             # Directly navigate to PDF URL
             pdf_url = f"https://dl.acm.org/doi/pdf/{doi}"
@@ -93,7 +92,7 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
             # Set up download handler
             download_promise = None
 
-            async def handle_download(download):
+            def handle_download(download):
                 nonlocal download_promise
                 download_promise = download
                 print(f'Download started: {download.suggested_filename}')
@@ -103,10 +102,10 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
             # Navigate to PDF URL
             try:
                 print('Navigating to PDF URL...')
-                await page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
+                page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
 
                 # Check page title for Cloudflare challenge
-                title = await page.title()
+                title = page.title()
                 print(f'Page title: {title}')
 
                 # Check if we hit Cloudflare
@@ -116,7 +115,7 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
 
                     # Wait for title to change
                     try:
-                        await page.wait_for_function(
+                        page.wait_for_function(
                             "document.title !== '请稍候…' && document.title !== 'Just a moment...'",
                             timeout=60000
                         )
@@ -126,11 +125,11 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
 
                 # Wait for PDF to fully load
                 print('Waiting for PDF to fully load (10 seconds)...')
-                await page.wait_for_timeout(10000)
+                page.wait_for_timeout(10000)
 
                 # Trigger download using JavaScript
                 print('Triggering download via JavaScript...')
-                await page.evaluate('''
+                page.evaluate('''
                     () => {
                         const link = document.createElement('a');
                         link.href = window.location.href;
@@ -138,7 +137,7 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
                         link.click();
                     }
                 ''')
-                await page.wait_for_timeout(3000)
+                page.wait_for_timeout(3000)
 
                 # Wait for download to complete
                 if download_promise:
@@ -154,26 +153,22 @@ async def download_acm_paper_with_browser_async(doi: str, output_dir: str, custo
                     Path(output_dir).mkdir(exist_ok=True)
                     save_path = str(Path(output_dir) / filename)
 
-                    await download_promise.save_as(save_path)
+                    download_promise.save_as(save_path)
                     print(f"Successfully saved to: {save_path}")
 
-                    await browser.close()
+                    browser.close()
                     return f"Downloaded to {save_path}"
                 else:
-                    await browser.close()
+                    browser.close()
                     return f"Could not trigger download. Please try manually: {pdf_url}"
 
             except Exception as nav_error:
                 print(f'Navigation error: {nav_error}')
-                await browser.close()
+                browser.close()
                 return f"Navigation failed: {nav_error}\nTry manually: {pdf_url}"
 
     except Exception as e:
         return f"Browser download failed: {e}\nTry manually: https://dl.acm.org/doi/pdf/{doi}"
-
-def download_acm_paper_with_browser(doi: str, output_dir: str, custom_filename: str | None = None) -> str:
-    """Wrapper to run async download in sync context"""
-    return asyncio.run(download_acm_paper_with_browser_async(doi, output_dir, custom_filename))
 
 @mcp.tool()
 def scrape_dblp_conference(url: str, output_file: str = "papers.md", include_authors: bool = False) -> str:
