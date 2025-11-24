@@ -1,7 +1,7 @@
 [project]
 name = "paper-searcher-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "MCP server for searching and downloading academic papers from DBLP"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,3 +9,6 @@ dependencies = [
     "requests>=2.32.5",
     "selectolax>=0.4.3",
 ]
+
+[project.scripts]
+paper-searcher-mcp = "main:mcp.run"
