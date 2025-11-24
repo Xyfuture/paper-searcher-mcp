@@ -17,8 +17,14 @@ session.trust_env = False
 session.proxies = {}
 
 @mcp.tool()
-def scrape_dblp_conference(url: str, output_file: str = "papers.md") -> str:
-    """Scrape papers from a DBLP conference page and save to markdown file"""
+def scrape_dblp_conference(url: str, output_file: str = "papers.md", include_authors: bool = False) -> str:
+    """Scrape papers from a DBLP conference page and save to markdown file
+
+    Args:
+        url: DBLP conference page URL
+        output_file: Output markdown file path
+        include_authors: Whether to include author information (default: False)
+    """
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=10)
@@ -44,7 +50,8 @@ def scrape_dblp_conference(url: str, output_file: str = "papers.md") -> str:
     md_content = f"# Conference Papers\n\nSource: {url}\n\n"
     for i, paper in enumerate(papers, 1):
         md_content += f"## {i}. {paper['title']}\n\n"
-        md_content += f"**Authors:** {', '.join(paper['authors'])}\n\n"
+        if include_authors:
+            md_content += f"**Authors:** {', '.join(paper['authors'])}\n\n"
         md_content += f"**DOI:** {paper['doi_url']}\n\n"
         md_content += "---\n\n"
 
@@ -76,6 +83,10 @@ def download_paper(doi: str, output_dir: str = "downloads") -> str:
             doc_id = re.search(r'document/(\d+)', page_url)
             if doc_id:
                 pdf_urls.append(f"https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber={doc_id.group(1)}")
+
+        # ACM specific
+        elif 'dl.acm.org' in page_url:
+            pdf_urls.append(f"https://dl.acm.org/doi/pdf/{doi}")
 
         # Generic PDF links
         for link in tree.css('a[href*=".pdf"]'):
