@@ -8,3 +8,18 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Test files and downloads
+test_downloads/
+downloads/
+*.pdf
+test_*.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store

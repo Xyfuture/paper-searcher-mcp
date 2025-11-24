@@ -5,6 +5,7 @@ import re
 import time
 import os
 from fastmcp import FastMCP
+from playwright.sync_api import sync_playwright
 
 mcp = FastMCP("PaperSearcher")
 
@@ -15,6 +16,64 @@ for var in ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']:
 session = requests.Session()
 session.trust_env = False
 session.proxies = {}
+
+def download_acm_paper_with_browser(doi: str, output_dir: str) -> str:
+    """Download ACM paper using headless browser to bypass Cloudflare protection
+
+    Note: Most ACM papers require institutional access or subscription.
+    This function will work if you have proper access credentials.
+    """
+    try:
+        with sync_playwright() as p:
+            # Launch browser in headless mode without proxy
+            browser = p.chromium.launch(
+                headless=True,
+                proxy=None  # Explicitly disable proxy
+            )
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                proxy=None  # Explicitly disable proxy for context
+            )
+            page = context.new_page()
+
+            # Navigate to ACM paper page first to establish session
+            page_url = f"https://dl.acm.org/doi/{doi}"
+            page.goto(page_url, wait_until='networkidle', timeout=30000)
+
+            # Wait for page to load and Cloudflare to pass
+            page.wait_for_timeout(2000)
+
+            # Try to download PDF with the correct download parameter
+            pdf_url = f"https://dl.acm.org/doi/pdf/{doi}?download=true"
+
+            # Navigate to PDF URL
+            response = page.goto(pdf_url, wait_until='commit', timeout=30000)
+
+            # Check if we got a PDF
+            content_type = response.headers.get('content-type', '')
+            status = response.status
+
+            if 'pdf' in content_type.lower() and status == 200:
+                # Get the PDF content
+                pdf_content = response.body()
+
+                # Save to file
+                Path(output_dir).mkdir(exist_ok=True)
+                safe_doi = re.sub(r'[^\w\-_.]', '_', doi)
+                filename = f"{output_dir}/{safe_doi}.pdf"
+                Path(filename).write_bytes(pdf_content)
+
+                browser.close()
+                return f"Downloaded to {filename}"
+            else:
+                browser.close()
+                if status == 403:
+                    return f"Access denied (403). This paper requires institutional access or ACM subscription.\n\nOptions:\n1. Access via your university/institution network\n2. Check if paper is available on arXiv or author's website\n3. Manual download: {page_url}"
+                else:
+                    return f"Download failed (Status: {status}, Content-Type: {content_type}).\nTry manually: {page_url}"
+
+    except Exception as e:
+        return f"Browser download failed: {e}\nTry manually: https://dl.acm.org/doi/{doi}"
 
 @mcp.tool()
 def scrape_dblp_conference(url: str, output_file: str = "papers.md", include_authors: bool = False) -> str:
@@ -84,9 +143,9 @@ def download_paper(doi: str, output_dir: str = "downloads") -> str:
             if doc_id:
                 pdf_urls.append(f"https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber={doc_id.group(1)}")
 
-        # ACM specific
+        # ACM specific - use headless browser to bypass Cloudflare
         elif 'dl.acm.org' in page_url:
-            pdf_urls.append(f"https://dl.acm.org/doi/pdf/{doi}")
+            return download_acm_paper_with_browser(doi, output_dir)
 
         # Generic PDF links
         for link in tree.css('a[href*=".pdf"]'):

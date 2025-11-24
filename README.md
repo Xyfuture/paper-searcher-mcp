@@ -27,6 +27,16 @@ cd paper-searcher-mcp
 uv sync
 ```
 
+### Browser Installation (for ACM downloads)
+
+ACM paper downloads require a headless browser to bypass Cloudflare protection. Install Chromium:
+
+```bash
+uv run playwright install chromium
+```
+
+**Note:** This is automatically handled when using uvx, but required for local development.
+
 ### Updating
 
 To update to the latest version, simply reinstall using uvx:
@@ -122,8 +132,8 @@ Downloads a paper PDF from its DOI. Supports IEEE and ACM papers with direct dow
 - `output_dir` (str, optional): Directory to save PDF (default: "downloads")
 
 **Supported Publishers:**
-- **IEEE**: Uses IEEE Xplore stampPDF API
-- **ACM**: Uses ACM Digital Library direct PDF download
+- **IEEE**: Uses IEEE Xplore stampPDF API (works without authentication)
+- **ACM**: Uses headless browser to bypass Cloudflare protection (requires institutional access or subscription for most papers)
 - **Others**: Attempts to find PDF links from the publisher's page
 
 **Returns:** Status message with file path or error
@@ -142,6 +152,16 @@ download_paper("10.1145/3489517.3530525", "downloads")
 - All downloads are performed without proxy to ensure compatibility with academic publisher websites
 - The server automatically handles different publisher-specific download methods
 - Author information is optional in conference scraping to reduce output size when not needed
+
+### ACM Download Limitations
+
+ACM papers typically require institutional access or a personal subscription. The tool uses a headless browser to bypass Cloudflare protection, but cannot bypass access restrictions. If you encounter a 403 error:
+
+1. **Use institutional network**: Access from your university/research institution network
+2. **Check alternative sources**: Many papers are available on arXiv or authors' personal websites
+3. **Manual download**: Visit the paper page directly through your institution's proxy
+
+The headless browser approach will work successfully if you have proper access credentials through your network.
 
 ## How Updates Work
 
